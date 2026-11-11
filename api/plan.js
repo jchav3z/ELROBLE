@@ -155,15 +155,18 @@ async function callGemini(description, apiKey, model) {
         // El texto del cliente va delimitado para que el modelo lo trate como dato.
         contents: [{ role: "user", parts: [{ text: `<solicitud_cliente>\n${description}\n</solicitud_cliente>` }] }],
         generationConfig: {
-          temperature: 0.2,
           maxOutputTokens: LIMITS.maxOutputTokens,
           responseMimeType: "application/json",
           responseSchema: RESPONSE_SCHEMA,
-          thinkingConfig: { thinkingBudget: 0 },
+          thinkingConfig: { thinkingLevel: "minimal" },
         },
       }),
     });
-    if (!response.ok) throw new Error(`Gemini respondió ${response.status}`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const detail = payload?.error?.message;
+      throw new Error(`Gemini ${model} respondió ${response.status}${detail ? `: ${String(detail).slice(0, 240)}` : ""}`);
+    }
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
     return { raw: JSON.parse(text), usage: data.usageMetadata || {} };
