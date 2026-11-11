@@ -178,7 +178,7 @@ async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Usa POST." });
 
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
   if (!apiKey) return res.status(503).json({ error: "Modelo no configurado (falta GEMINI_API_KEY)." });
 
   // Tope de llamadas por minuto (gasto/abuso).
