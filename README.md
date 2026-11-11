@@ -41,7 +41,7 @@ Después, el agente usa sus herramientas: `readInventory` (solo lectura) y `save
 ## Configurar el modelo (Vercel)
 
 1. Crea una clave gratis en Google AI Studio (aistudio.google.com → *Get API key*).
-2. En Vercel: *Project → Settings → Environment Variables* → agrega `GEMINI_API_KEY` con la clave. Opcional: `GEMINI_MODEL` (por defecto `gemini-2.5-flash`).
+2. En Vercel: *Project → Settings → Environment Variables* → agrega `GEMINI_API_KEY` con la clave. Opcional: `GEMINI_MODEL` (por defecto `gemini-3.5-flash-lite`).
 3. Vuelve a desplegar (*Deployments → Redeploy*).
 
 **Nunca** pegues la clave en el código, en la presentación ni en el video. Si se expone, revócala en AI Studio.
