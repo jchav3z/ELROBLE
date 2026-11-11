@@ -196,7 +196,7 @@ dialog { color: var(--text); }
 .project-form textarea { display: block; width: 100%; min-height: 82px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; line-height: 1.65; }
 .project-form textarea::placeholder { color: #a9b4a9; opacity: 1; }
 .project-form textarea:focus-visible { outline: 0; }
-.planner-form-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 11px; border-top: 1px solid #2c352e; }
+.planner-form-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 11px; border-top: 1px solid #2c352e; }
 .security-test-button { width: fit-content; padding: 0; border: 0; background: transparent; color: #e1c797; font-size: 11px; text-decoration: underline; text-decoration-color: #78694e; text-underline-offset: 3px; }
 .security-test-button:hover { color: #f0d7a9; }
 .security-test-button:disabled { cursor: wait; opacity: .5; }

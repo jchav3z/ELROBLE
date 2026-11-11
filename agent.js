@@ -3,6 +3,9 @@
 (() => {
   const UNSAFE_INSTRUCTIONS = [
     /\bignora\b/,
+    /\bolvida\b/,
+    /\binstrucciones (?:anteriores|previas)\b/,
+    /\bsystem prompt\b/,
     /\bomite\b/,
     /\bsin (?:aprobacion|revision|validacion)\b/,
     /\b(?:compra|registra|aprueba|despacha)\b.{0,70}\b(?:automaticamente|sin (?:pagar|revisar|aprobar))\b/,
@@ -78,15 +81,20 @@
 
     if (/\b(pintar|pintura)\b/.test(normalized) && /\b(habitacion|pieza|dormitorio|muro|pared)\b/.test(normalized)) {
       const dimensions = normalized.match(/(\d+(?:[.,]\d+)?)\s*(?:x|por)\s*(\d+(?:[.,]\d+)?)\s*(?:m|metros?)\b/);
+      const heightMatch = normalized.match(/(\d+(?:[.,]\d+)?)\s*(?:m|metros?)?\s*de\s*alt[oa]\b/) || normalized.match(/\balt[oa]\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/);
+      const height = heightMatch ? Number(heightMatch[1].replace(",", ".")) : 2.4;
+      const coatsMatch = normalized.match(/(\d+)\s*manos?\b/);
+      const coats = coatsMatch ? Math.max(1, Math.min(4, Number(coatsMatch[1]))) : 2;
       const wallArea = dimensions
-        ? 2 * (Number(dimensions[1].replace(",", ".")) + Number(dimensions[2].replace(",", "."))) * 2.4
+        ? 2 * (Number(dimensions[1].replace(",", ".")) + Number(dimensions[2].replace(",", "."))) * height
         : 40;
-      const gallons = Math.max(1, Math.min(8, Math.ceil(wallArea / 30)));
+      // Rendimiento de referencia: 35 m² por galón por mano.
+      const gallons = Math.max(1, Math.min(8, Math.ceil((wallArea * coats) / 35)));
       return {
         route: "suggestions",
         project: "Pintar una habitación",
         note: dimensions
-          ? `Estimación inicial para una habitación de ${dimensions[1]} × ${dimensions[2]} m. Confirma superficie y número de manos antes de comprar.`
+          ? `Estimación para una habitación de ${dimensions[1]} × ${dimensions[2]} m y ${height.toLocaleString("es-CL")} m de alto: ${wallArea.toLocaleString("es-CL", { maximumFractionDigits: 1 })} m² de muro, ${coats} manos.`
           : "Estimación inicial para una habitación mediana. Confirma superficie y número de manos antes de comprar.",
         items: [
           { sku: "paint", quantity: gallons },
@@ -182,5 +190,56 @@
     };
   }
 
-  window.ElRobleAgent = Object.freeze({ makeProjectPlan, checkStock, hasUnsafeInstruction, normalize });
+  const SUSPICIOUS_IN_FALLBACK = /\b(descuentos?|pagad[oa]s?|autorizad[oa]|asistente|agente|nota para|precio (?:cero|0))\b/;
+
+  // Topes por ejecución (se muestran en la traza).
+  const LIMITS = Object.freeze({ maxInputChars: 500, llmTimeoutMs: 12000, maxSteps: 6, maxItems: 8, maxQty: 50 });
+
+  /**
+   * Orquestador: decide el camino del agente.
+   * Capa 1: reglas locales (bloquean sin gastar una llamada al modelo).
+   * Capa 2: LLM en /api/plan (interpreta el proyecto, elige materiales del catálogo).
+   * Capa 3: el servidor valida la respuesta del modelo (lista blanca y rangos).
+   * Plan B: si el modelo no responde, usa las reglas locales y lo deja en la traza.
+   */
+  async function planProject(description) {
+    const trace = [`Topes de esta ejecución: ${LIMITS.maxSteps} pasos, ${LIMITS.llmTimeoutMs / 1000} s para el modelo, ${LIMITS.maxItems} materiales, cantidades 1–${LIMITS.maxQty}, ${LIMITS.maxInputChars} caracteres.`];
+    const normalized = normalize(description.trim());
+    if (!normalized) return { result: makeProjectPlan(description), trace, source: "rules" };
+    if (description.length > LIMITS.maxInputChars) {
+      return { result: { route: "clarify", reason: `Describe el proyecto en menos de ${LIMITS.maxInputChars} caracteres.` }, trace: [...trace, "Entrada sobre el tope de largo."], source: "rules" };
+    }
+    if (hasUnsafeInstruction(normalized)) {
+      trace.push("Capa 1 (reglas locales): detecté instrucciones para saltar controles. No llamé al modelo.");
+      return { result: makeProjectPlan(description), trace, source: "rules" };
+    }
+    trace.push("Capa 1 (reglas locales): sin señales de instrucciones maliciosas. Envío la solicitud al modelo.");
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LIMITS.llmTimeoutMs);
+    try {
+      const response = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description }),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.plan) throw new Error(data.error || `respuesta ${response.status}`);
+      return { result: data.plan, trace: [...trace, ...(data.trace || [])], source: data.source || "llm", model: data.model };
+    } catch (error) {
+      const why = error.name === "AbortError" ? "tiempo de espera superado" : error.message;
+      trace.push(`Plan B: el modelo no estuvo disponible (${why}). Usé las reglas locales del catálogo.`);
+      // Sin el modelo, somos más conservadores con señales de manipulación que la capa 1 deja pasar.
+      if (SUSPICIOUS_IN_FALLBACK.test(normalized)) {
+        trace.push("Plan B: la solicitud trae indicaciones dirigidas al sistema (descuentos, estados de pago, roles). La detengo para revisión humana.");
+        return { result: { route: "blocked", reason: "La solicitud incluye indicaciones dirigidas al sistema. Sin el modelo no puedo evaluarlas, así que la dejo para revisión de una persona." }, trace, source: "rules-fallback" };
+      }
+      return { result: makeProjectPlan(description), trace, source: "rules-fallback" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  window.ElRobleAgent = Object.freeze({ makeProjectPlan, planProject, checkStock, hasUnsafeInstruction, normalize, LIMITS });
 })();
